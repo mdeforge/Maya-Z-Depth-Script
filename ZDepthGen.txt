@@ -1,0 +1,92 @@
+import pymel.core as pm
+
+#Initialize
+myCamera = pm.ls(sl = True)
+planeScaleSize = 30
+planeSubD = 8
+myCamTransform = myCamera[0].translate.get()
+
+#Create First Plane
+myPlane = pm.polyPlane(n = 'NEAR_plane', w = planeScaleSize, h = planeScaleSize, sx = planeSubD, sy = planeSubD)
+pm.parent('NEAR_plane', myCamera, relative = True)
+pm.rotate('NEAR_plane', '-90deg', 0)
+pm.move(0, 0, -5, ls = True, r = True, wd = True)
+pm.setAttr('NEAR_planeShape.castsShadows', 0)
+pm.setAttr('NEAR_planeShape.receiveShadows', 0)
+pm.setAttr('NEAR_planeShape.motionBlur', 0)
+pm.setAttr('NEAR_planeShape.primaryVisibility', 0)
+pm.setAttr('NEAR_planeShape.smoothShading', 0)
+pm.setAttr('NEAR_planeShape.visibleInReflections', 0)
+pm.setAttr('NEAR_planeShape.visibleInRefractions', 0)
+
+#Create Second Plane (Comes in parented)
+pm.duplicate('NEAR_plane', n = 'FAR_plane')
+pm.rotate('FAR_plane', '-90deg', 0)
+pm.move(0, 0, -5, ls = True, r = True, wd = True)
+pm.setAttr('FAR_planeShape.castsShadows', 0)
+pm.setAttr('FAR_planeShape.receiveShadows', 0)
+pm.setAttr('FAR_planeShape.motionBlur', 0)
+pm.setAttr('FAR_planeShape.primaryVisibility', 0)
+pm.setAttr('FAR_planeShape.smoothShading', 0)
+pm.setAttr('FAR_planeShape.visibleInReflections', 0)
+pm.setAttr('FAR_planeShape.visibleInRefractions', 0)
+
+#Unparent //W means parented to the world
+pm.parent('NEAR_plane', w = True)
+pm.parent('FAR_plane', w = True)
+
+#Create Distant Dimensions
+pm.distanceDimension(sp = (myCamTransform.x, myCamTransform.y, myCamTransform.z), ep = (0, 0, -5))
+pm.distanceDimension(sp = (myCamTransform.x, myCamTransform.y, myCamTransform.z), ep = (0, 0, -10))
+
+#Rename
+pm.rename('locator1', 'CAM_locator')
+pm.rename('locator2', 'NEAR_locator')
+pm.rename('locator3', 'FAR_locator')
+pm.rename('distanceDimension1', 'NEAR_distanceDimension')
+pm.rename('distanceDimension2', 'FAR_distanceDimension')
+
+#Constrain and Group
+pm.parentConstraint(myCamera, 'CAM_locator')
+pm.parentConstraint('NEAR_plane', 'NEAR_locator')
+pm.parentConstraint('FAR_plane', 'FAR_locator')
+pm.group('NEAR_plane', 'FAR_plane', n = 'Planes')
+
+#Parent and Maintain Offset
+pm.parentConstraint(myCamera, 'Planes', mo = True)
+pm.group('Planes', 'CAM_locator', 'NEAR_locator', 'FAR_locator', 'NEAR_distanceDimension', 'FAR_distanceDimension', n = 'ZDepth_Group')
+
+#Select All
+pm.select(all = True)
+pm.createRenderLayer(g = True, n = 'ZDepth')
+
+#Create Surface Shader
+myShader = pm.shadingNode('surfaceShader', asShader = True, n = 'mySurfaceShader')
+myShaderSG = pm.sets( renderable=True, noSurfaceShader=True, empty=True, name='mySurfaceShaderSG' );
+pm.connectAttr( 'mySurfaceShader.outColor', 'mySurfaceShaderSG.surfaceShader', force=True)
+
+#Create Multiple/Divide
+pm.shadingNode('multiplyDivide', asUtility = True, n = 'myMultiDiv')
+pm.setAttr('myMultiDiv.input2.input2X', -1)
+
+#Create Sampler Info
+pm.shadingNode('samplerInfo', asUtility = True, n = 'mySamplerInfo')
+
+#Create setRange
+pm.shadingNode('setRange', asUtility = True, n = 'myRangeNode')
+pm.setAttr('myRangeNode.min.minX', 1)
+
+#Hookup
+pm.connectAttr('mySamplerInfo.pointCamera.pointCameraZ', 'myMultiDiv.input1.input1X')
+pm.connectAttr('myMultiDiv.output.outputX', 'myRangeNode.value.valueX')
+pm.connectAttr('myRangeNode.outValue.outValueX', 'mySurfaceShader.outColor.outColorR')
+pm.connectAttr('myRangeNode.outValue.outValueX', 'mySurfaceShader.outColor.outColorG')
+pm.connectAttr('myRangeNode.outValue.outValueX', 'mySurfaceShader.outColor.outColorB')
+pm.connectAttr('NEAR_distanceDimensionShape.distance', 'myRangeNode.oldMin.oldMinX')
+pm.connectAttr('FAR_distanceDimensionShape.distance', 'myRangeNode.oldMax.oldMaxX')
+
+#Apply Shader to everything
+ssn = pm.ls(type = 'mesh')
+for i in ssn:
+    pm.select(i)
+    pm.hyperShade(assign = 'mySurfaceShader')
